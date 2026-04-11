@@ -60,11 +60,15 @@ That last row is the important one. If your userscript has grown complex enough 
 
 ---
 
+The SKILL.md is read-only, so here's the revised **Module Structure** section ready to paste in. The changes: tightened the folder-rule prose, added an explicit `lib/` stance, strengthened the flat-first advice with a before/after, and fixed the `button.ts` example confusion.
+
+---
+
 ## Module Structure
 
 No God Files. Even though a userscript is a single bundle, the source should be modular. `main.ts` should read like an orchestrator, not an implementation dump.
 
-Beyond that, **let the contents drive the structure — not a template.** There is no canonical folder layout to copy. The right structure for your project is the one that reflects what your project actually contains.
+Beyond that, **let the contents drive the structure — not a template.** There is no canonical folder layout to copy. The right structure is the one that reflects what your project actually contains.
 
 ### The rule for creating a folder
 
@@ -72,20 +76,51 @@ A folder earns its existence when:
 1. You have **two or more files** that belong together, and
 2. The folder name **communicates something** the filenames alone don't
 
-A single-file folder is almost always wrong — it's just indirection. A folder named `core/` is a particularly weak signal: it means "important" which means everything and nothing. Compare:
+A single-file folder is almost always wrong — it's pure indirection. Weak folder names are a related smell: `core/` means "important," which means everything and nothing. `modules/` describes every file in a JS project. Compare:
 
 - `services/` → "these talk to external things" ✓ communicates something
 - `utils/` → "these are generic helpers" ✓ communicates something
-- `core/` → "this is... important?" ✗ adds no information
+- `core/` → "these are... important?" ✗ adds no information
+- `modules/` → "these are... modules?" ✗ adds no information
+- `lib/` → "these came from somewhere else?" ✗ see below
 
-### Practical guidance
+### On `lib/` — just use `utils/`
 
-**Start flat.** If you have one standalone module — a state machine, a parser, a detector — put it as a file directly in `src/`. Don't create a folder for it.
+The intended distinction is: `utils/` = things you wrote, `lib/` = things you adapted from external sources. In practice that line blurs fast — you patch a utility, you heavily adapt a snippet, you write something that feels "library-like." You end up making a judgment call on every new file, which is friction that doesn't pay for itself.
+
+`lib/` also carries misleading baggage: in backend or monorepo projects it often means "publishable, reusable across projects." That meaning is irrelevant in a userscript — nothing in `src/` is being published or shared externally.
+
+**The rule:** `utils/` handles all generic helpers, regardless of origin. If you vendor a substantial chunk of external code verbatim, note its source in a comment at the top of that file. You don't need a folder for provenance tracking.
+
+### Start flat, promote when ready
+
+Resist the urge to create folders upfront. Start with files directly in `src/` and only introduce a folder once it genuinely earns one.
+
+**Before** — one module, no folder needed:
+```
+src/
+├── main.ts
+└── detector.ts
+```
+
+**After** — `detector` has grown; now a folder communicates something real:
+```
+src/
+├── main.ts
+└── detector/
+    ├── detector.ts
+    ├── detector-observer.ts
+    └── detector-registry.ts
+```
+
+Flat and foldered can coexist. There's no rule that structure must be uniform across `src/`.
+
+### A realistic mid-size layout
 
 ```
 src/
-├── main.ts          ← orchestrator
-├── button.ts        ← state machine, stands alone — no folder needed
+├── main.ts           ← orchestrator only
+├── state-machine.ts  ← standalone module, no folder needed yet
 ├── services/
 │   ├── storage.ts
 │   ├── transcript.ts
@@ -96,15 +131,11 @@ src/
     └── styles.ts
 ```
 
-**Hybrid is fine.** Flat and foldered can coexist in the same `src/`. There's no rule that structure must be uniform. `services/` earns its folder (three files, all GM_* wrappers). A lone `button.ts` doesn't need one just because `services/` has one.
+`services/` earns its folder — three files, all GM_* wrappers, all side-effectful. `utils/` earns its folder — generic helpers with no business logic. `state-machine.ts` doesn't need a folder just because the others have one.
 
-**Promote when ready.** If `button.ts` later spawns `button-observer.ts` and `button-registry.ts`, *then* make `button/`. Not before.
+### Common categories that earn folders
 
-### Common categories that do earn folders
-
-These groupings tend to make sense once you have multiple files in them:
-
-- `services/` — GM_* wrappers, external API calls, storage abstractions (all side-effectful, all "talk to the outside world")
+- `services/` — GM_* wrappers, external API calls, storage abstractions: things that talk to the outside world
 - `utils/` — generic helpers: DOM shortcuts, string formatters, pure functions with no business logic
 
 ---
