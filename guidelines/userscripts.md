@@ -66,79 +66,81 @@ The SKILL.md is read-only, so here's the revised **Module Structure** section re
 
 ## Module Structure
 
-No God Files. Even though a userscript is a single bundle, the source should be modular. `main.ts` should read like an orchestrator, not an implementation dump.
+No God Files. Even though a userscript is a single bundle, the source should be modular. `main.ts` should read like a true composition root — the one place where the dependency graph is assembled and visible, not an implementation dump.
 
-Beyond that, **let the contents drive the structure — not a template.** There is no canonical folder layout to copy. The right structure is the one that reflects what your project actually contains.
+### The four folders
 
-### The rule for creating a folder
+A userscript has four legitimate concerns. Each gets a folder when it has two or more files. Each folder has a strict contract — a file belongs in exactly one of them.
 
-A folder earns its existence when:
-1. You have **two or more files** that belong together, and
-2. The folder name **communicates something** the filenames alone don't
+**`ui/`** — DOM creation and state rendering only. Files here create elements, mutate their appearance, and listen for user input. They know nothing about what happens when the user acts — they only know how to render a given state and surface a callback.
 
-A single-file folder is almost always wrong — it's pure indirection. Weak folder names are a related smell: `core/` means "important," which means everything and nothing. `modules/` describes every file in a JS project. Compare:
+**`actions/`** — sequenced user-facing operations. One file per thing a user can trigger. Each file sequences calls to `adapters/` in the right order, handles errors, and returns a result. No DOM, no GM_* calls, no rendering. If you removed the UI entirely, these files would still make sense.
 
-- `services/` → "these talk to external things" ✓ communicates something
-- `utils/` → "these are generic helpers" ✓ communicates something
-- `core/` → "these are... important?" ✗ adds no information
-- `modules/` → "these are... modules?" ✗ adds no information
-- `lib/` → "these came from somewhere else?" ✗ see below
+**`adapters/`** — wrappers around external APIs and browser capabilities. GM_* calls, network requests, storage reads and writes. Each file translates between your codebase's language and some external system's language. No business logic — only translation and error classification that exists because the external system requires it.
 
-### On `lib/` — just use `utils/`
+**`utils/`** — generic, domain-free helpers. Pure functions: DOM shortcuts, string formatters, icon factories. No GM_* calls, no business logic, no side effects. If a file would make sense in a completely different userscript, it belongs here.
 
-The intended distinction is: `utils/` = things you wrote, `lib/` = things you adapted from external sources. In practice that line blurs fast — you patch a utility, you heavily adapt a snippet, you write something that feels "library-like." You end up making a judgment call on every new file, which is friction that doesn't pay for itself.
+### The dependency rule
 
-`lib/` also carries misleading baggage: in backend or monorepo projects it often means "publishable, reusable across projects." That meaning is irrelevant in a userscript — nothing in `src/` is being published or shared externally.
+Dependencies only flow downward:
 
-**The rule:** `utils/` handles all generic helpers, regardless of origin. If you vendor a substantial chunk of external code verbatim, note its source in a comment at the top of that file. You don't need a folder for provenance tracking.
+```
+ui/ → actions/ → adapters/
+             ↘ utils/
+```
 
-### Start flat, promote when ready
+`ui/` may call `actions/`. `actions/` may call `adapters/`. Nothing calls upward. `utils/` is available to all layers. Violating this — an adapter importing from actions, a UI file importing directly from adapters — is the signal that something is in the wrong folder.
 
-Resist the urge to create folders upfront. Start with files directly in `src/` and only introduce a folder once it genuinely earns one.
+### `main.ts` is the composition root
 
-**Before** — one module, no folder needed:
+`main.ts` has one job: wire the layers together and start the script. It is the only place allowed to reach across all folders. It must make the dependency graph visible — if the ordering of initialisation matters, that ordering must be explicit here, not implicit in import order.
+
+```ts
+// main.ts — you can read the whole architecture from this file
+import { initStorage } from './adapters/storage';
+import { injectAll } from './ui/dom';
+
+async function main(): Promise<void> {
+  await initStorage();                          // adapters boot first
+  setInterval(injectAll, POLL_INTERVAL_MS);     // ui starts after
+}
+
+void main();
+```
+
+If `main.ts` grows beyond wiring and starting, something is wrong.
+
+### A realistic layout
+
 ```
 src/
 ├── main.ts
-└── detector.ts
-```
-
-**After** — `detector` has grown; now a folder communicates something real:
-```
-src/
-├── main.ts
-└── detector/
-    ├── detector.ts
-    ├── detector-observer.ts
-    └── detector-registry.ts
-```
-
-Flat and foldered can coexist. There's no rule that structure must be uniform across `src/`.
-
-### A realistic mid-size layout
-
-```
-src/
-├── main.ts           ← orchestrator only
-├── state-machine.ts  ← standalone module, no folder needed yet
-├── services/
+├── ui/
+│   ├── button.ts
+│   └── button.css
+├── actions/
+│   └── copyTranscript.ts
+├── adapters/
 │   ├── storage.ts
 │   ├── transcript.ts
 │   └── clipboard.ts
 └── utils/
     ├── dom.ts
-    ├── icons.ts
-    └── styles.ts
+    └── icons.ts
 ```
 
-`services/` earns its folder — three files, all GM_* wrappers, all side-effectful. `utils/` earns its folder — generic helpers with no business logic. `state-machine.ts` doesn't need a folder just because the others have one.
+### On naming
 
-### Common categories that earn folders
+Folder names carry architectural claims. Hold them to it.
 
-- `services/` — GM_* wrappers, external API calls, storage abstractions: things that talk to the outside world
-- `utils/` — generic helpers: DOM shortcuts, string formatters, pure functions with no business logic
+- `ui/` → "these render things" ✓
+- `actions/` → "these are things a user can do" ✓
+- `adapters/` → "these translate to external systems" ✓
+- `utils/` → "these are generic helpers" ✓
+- `core/` → "these are... important?" ✗ means nothing
+- `services/` → technically accurate for adapters, but blurs the line with actions — both could claim the label. The ambiguity is exactly the problem it fails to solve.
 
----
+If you find yourself debating which folder a file belongs in, the folder names are not doing their job.
 
 ## UI: Just Use the DOM
 
