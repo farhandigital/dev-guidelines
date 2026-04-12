@@ -144,17 +144,34 @@ If you find yourself debating which folder a file belongs in, the folder names a
 
 ## UI: Just Use the DOM
 
-There are no native UI surfaces in a userscript. Everything you render is injected into the host page. Manual DOM is the right default:
+There are no native UI surfaces in a userscript. Everything you render is injected into the host page. Manual DOM is the right default, but you must protect your elements from colliding with the host page.
+
+### The Module-Scoped Dynamic ID
+For elements you inject and need to track (e.g., to ensure you don't inject them twice), **generate a stable, random ID at module scope**. 
 
 ```ts
-const btn = document.createElement('button');
-btn.className = 'myscript-btn';
-btn.textContent = 'Do Thing';
-btn.onclick = handleClick;
-document.querySelector('#target')?.appendChild(btn);
+// ui/injector.ts
+// Generated once when the module loads, stable for the entire session.
+const NS = `uc_${Math.random().toString(36).slice(2, 10)}`;
+
+export function isAlreadyInjected() {
+    // ⚠️ Crucial: Use getElementById, not querySelector. 
+    // getElementById is an O(1) hash map lookup and skips the browser's CSS parser.
+    return document.getElementById(NS) !== null; 
+}
+
+export function injectElement() {
+    const btn = document.createElement('button');
+    btn.id = NS; // Bind the generated ID
+    btn.className = 'myscript-btn';
+    btn.textContent = 'Do Thing';
+    document.querySelector('#target')?.appendChild(btn);
+}
 ```
 
-This is not a compromise — it's appropriate for the format. Keep it simple.
+**Why this is mandatory:**
+1. **Zero Collisions:** A random string like `uc_x7k2m9p3` guarantees you will never accidentally conflict with a class or ID the host site deploys in the future.
+2. **Maximum Polling Performance:** As discussed below, modern userscripts often poll the DOM rapidly. Checking for existence via `getElementById(NS)` costs practically zero CPU.
 
 ---
 
@@ -176,15 +193,62 @@ Inject styles with `GM_addStyle`. Use specific, namespaced class names (e.g. `my
 
 ---
 
-## DOM Interaction & Timing
+## DOM Interaction & Timing (The SPA Polling Architecture)
 
-You handle timing yourself — there's no framework magic.
+Modern web apps are Single Page Applications (SPAs) built with React, Vue, or Turbo. They do not trigger full page reloads on navigation; they just rip out and replace chunks of the DOM. 
 
-- **`setInterval` polling** is underrated. For most "wait for element to appear" cases, polling every 200–500ms is simple, readable, and reliable enough.
-- **MutationObserver** when you need precise interception — before a user sees something, or reacting to high-frequency DOM changes.
-- **`DOMContentLoaded` / `window.onload`** for scripts that only need to run once after page load.
+### The `MutationObserver` Trap
+Tutorials often preach using `MutationObserver` to watch the DOM. **Avoid this for SPAs.** If you attach an observer to a specific container, it gets destroyed when the framework replaces that container. If you attach it to `document.body` with `{ subtree: true }`, your script will trigger thousands of times per second during a page transition, tanking performance and requiring complex debouncing logic.
 
-Match the tool to the precision required. Don't default to MutationObserver just because it sounds more thorough.
+### The `setInterval` Solution
+The most robust, resilient, and performant approach for injecting UI into an SPA is **Continuous Polling via `setInterval`** (e.g., every 300ms), combined with strict execution guards. Polling survives framework re-renders, catches SPA navigations natively, and requires zero cleanup. 
+
+To prevent your interval from becoming a "CPU/Network Hammer," you **must** structure your main loop with four strict guards:
+
+1. **The Fast-Path Guard:** Use your dynamic ID (`document.getElementById(NS)`) to check if your element exists. If it does, exit immediately.
+2. **The Path Guard:** Use string matching on `window.location.pathname` to ensure you are on the correct page *before* doing any heavy DOM traversals (`querySelectorAll`).
+3. **The Network Guard:** Cache external data/API responses (using memory or `GM_setValue`) so you only fetch data once per context, not every 300ms.
+4. **The Concurrency Guard:** Use an `isRunning` boolean lock to prevent overlapping async executions if the interval fires while an API call is still pending.
+
+**The Golden Architecture:**
+
+```ts
+// main.ts
+let isRunning = false;
+
+async function main() {
+    // 1. O(1) Fast Paths
+    if (window.location.hostname !== 'targetsite.com') return;
+    if (isAlreadyInjected()) return; // document.getElementById(NS)
+
+    // 2. CPU Guard (Path Checking)
+    // E.g., Only run on /users/profile pages
+    const pathParts = window.location.pathname.split('/');
+    if (pathParts[1] !== 'users' || pathParts.length > 3) return; 
+
+    // 3. Concurrency Guard
+    if (isRunning) return;
+    isRunning = true;
+
+    try {
+        const userId = pathParts[2];
+        
+        // 4. Network Guard (This adapter should check local cache before fetching)
+        const userData = await getUserDataAdapter(userId);
+        
+        // 5. Finally, run the heavy DOM traversal and inject
+        // If the React UI is still rendering and the target container is missing,
+        // this fails safely. The 300ms loop will just try again.
+        injectUI(userData);
+
+    } finally {
+        isRunning = false;
+    }
+}
+
+// Start the continuous, self-healing loop
+setInterval(main, 300);
+```
 
 ---
 
