@@ -68,15 +68,17 @@ The SKILL.md is read-only, so here's the revised **Module Structure** section re
 
 No God Files. Even though a userscript is a single bundle, the source should be modular. `main.ts` should read like a true composition root — the one place where the dependency graph is assembled and visible, not an implementation dump.
 
-### The four folders
+### The five layers
 
-A userscript has four legitimate concerns. Each gets a folder when it has two or more files. Each folder has a strict contract — a file belongs in exactly one of them.
+A userscript has five legitimate concerns. Each gets a folder when it has two or more files. Each folder has a strict contract — a file belongs in exactly one of them.
 
-**`ui/`** — DOM creation and state rendering only. Files here create elements, mutate their appearance, and listen for user input. They know nothing about what happens when the user acts — they only know how to render a given state and surface a callback.
+**`ui/`** — DOM creation and state rendering only. Files here create elements, mutate their appearance, and listen for user input. They know nothing about what happens when the user acts — they only know how to render a given state and surface a callback. This includes injection logic that places elements into the host page's DOM — even if it's navigating YouTube's existing structure, it's still a UI concern.
 
-**`actions/`** — sequenced user-facing operations. One file per thing a user can trigger. Each file sequences calls to `adapters/` in the right order, handles errors, and returns a result. No DOM, no GM_* calls, no rendering. If you removed the UI entirely, these files would still make sense.
+**`actions/`** — sequenced user-facing operations. One file per thing *a user can explicitly trigger* — a click, a keyboard shortcut, a context menu item. Each file sequences calls *across concerns*: fetch transcript, then write to clipboard, then persist state. The sequence is the user's intent expressed in code — each step is a different system, connected because that's what the goal requires. No DOM, no GM_* calls, no rendering. If you removed the UI entirely, these files would still make sense.
 
-**`adapters/`** — wrappers around external APIs and browser capabilities. GM_* calls, network requests, storage reads and writes. Each file translates between your codebase's language and some external system's language. No business logic — only translation and error classification that exists because the external system requires it.
+**`services/`** — reliable data access for a single concern. Files here sequence cache checks, retries, and backoff *around a single adapter* to make data retrieval dependable. The orchestration is a *mechanism*, not a user goal — there is no user intent to express, only a data reliability problem to solve. Unlike `actions/`, services are triggered by the *system* — a page load, a polling interval, an observer callback — not a user gesture. Unlike `adapters/`, they contain real logic that survives even if you swap the underlying transport. A file belongs here when the question is "how do I reliably get this data?" not "what does the user want to do?"
+
+**`adapters/`** — wrappers around external APIs and browser capabilities. GM_* calls, network requests, storage reads and writes. Each file translates between your codebase's language and some external system's language. No business logic — only translation and error classification that exists *because the external system requires it*. If you could swap the underlying API (e.g. `GM_setValue` → `localStorage`) by only touching this file, it's an adapter. If logic would survive that swap, it belongs elsewhere.
 
 **`utils/`** — generic, domain-free helpers. Pure functions: DOM shortcuts, string formatters, icon factories. No GM_* calls, no business logic, no side effects. If a file would make sense in a completely different userscript, it belongs here.
 
@@ -85,24 +87,33 @@ A userscript has four legitimate concerns. Each gets a folder when it has two or
 Dependencies only flow downward:
 
 ```
-ui/ → actions/ → adapters/
-             ↘ utils/
+ui/ → actions/ → services/ → adapters/
+               ↘           ↗
+                 adapters/
+                          ↘
+                           utils/  ← available to all layers
 ```
 
-`ui/` may call `actions/`. `actions/` may call `adapters/`. Nothing calls upward. `utils/` is available to all layers. Violating this — an adapter importing from actions, a UI file importing directly from adapters — is the signal that something is in the wrong folder.
+`ui/` may call `actions/`. `actions/` may call `services/` or `adapters/` directly. `services/` may call `adapters/`. Nothing calls upward. `utils/` is available to all layers.
+
+Violating this — an adapter importing from services, a UI file importing directly from adapters — is the signal that something is in the wrong layer. The direction of the import is the smell, not the content.
 
 ### `main.ts` is the composition root
 
-`main.ts` has one job: wire the layers together and start the script. It is the only place allowed to reach across all folders. It must make the dependency graph visible — if the ordering of initialisation matters, that ordering must be explicit here, not implicit in import order.
+`main.ts` has one job: wire the layers together and start the script. It is the only file allowed to reach across all layers. It must make the dependency graph visible — if the ordering of initialisation matters, that ordering must be explicit here, not implicit in import order.
 
 ```ts
 // main.ts — you can read the whole architecture from this file
 import { initStorage } from './adapters/storage';
-import { injectAll } from './ui/dom';
+import { injectCreationDate } from './ui/injector';
+import { getCreationDate } from './services/githubRepo';
 
 async function main(): Promise<void> {
-  await initStorage();                          // adapters boot first
-  setInterval(injectAll, POLL_INTERVAL_MS);     // ui starts after
+  await initStorage();                               // adapters boot first
+  setInterval(() => {                                // system loop, not user action
+    const date = await getCreationDate(user, repo);  // service call
+    injectCreationDate(date);                        // ui call
+  }, POLL_INTERVAL_MS);
 }
 
 void main();
@@ -117,11 +128,15 @@ src/
 ├── main.ts
 ├── ui/
 │   ├── button.ts
-│   └── button.css
+│   ├── button.css
+│   └── injector.ts      ← places UI into the host page's DOM
 ├── actions/
 │   └── copyTranscript.ts
+├── services/
+│   └── githubRepo.ts    ← cache check → backoff check → fetch
 ├── adapters/
 │   ├── storage.ts
+│   ├── cache.ts
 │   ├── transcript.ts
 │   └── clipboard.ts
 └── utils/
@@ -129,18 +144,25 @@ src/
     └── icons.ts
 ```
 
+Not every script will use all five layers. A passive augmentation script (observe, fetch, inject) may have `services/`, `adapters/`, `ui/`, and `utils/` but no `actions/` at all — because nothing is user-triggered. A purely interactive script might skip `services/` entirely. Folders only exist when they have two or more files. A single-file layer stays flat in `src/`.
+
 ### On naming
 
 Folder names carry architectural claims. Hold them to it.
 
 - `ui/` → "these render things" ✓
-- `actions/` → "these are things a user can do" ✓
+- `actions/` → "these are things a user explicitly triggers" ✓
+- `services/` → "these orchestrate data access with cross-cutting concerns" ✓
 - `adapters/` → "these translate to external systems" ✓
 - `utils/` → "these are generic helpers" ✓
 - `core/` → "these are... important?" ✗ means nothing
-- `services/` → technically accurate for adapters, but blurs the line with actions — both could claim the label. The ambiguity is exactly the problem it fails to solve.
+- `lib/` → implies publishable/cross-project reuse that doesn't exist here ✗
+- `modules/` → describes every JS file in existence ✗
 
-If you find yourself debating which folder a file belongs in, the folder names are not doing their job.
+The distinction between `actions/` and `services/` is not ambiguous if you apply the trigger test: **did a user gesture cause this to run?** If yes, it's an action. If no, it's a service. That question has a clear answer for every file.
+
+If you find yourself debating which folder a file belongs in, re-read the trigger test. If the test doesn't resolve it, the file is probably doing two things.
+
 
 ## UI: Just Use the DOM
 
