@@ -30,6 +30,12 @@ Pick `empty` and `ts` as the template. The entry point is a single `main.ts` tha
 └── vite.config.ts
 ```
 
+## Non-shell guidance. 
+
+Most of the times, the user will execute this command to set up a new userscript project, so you don't need to rewrite the boilerplate again. You just need to add your own code for the src/ 
+
+Here is the full template source code for reference so you understand the full picture. 
+
 ## Full Template Source Code
 
 ```txt
