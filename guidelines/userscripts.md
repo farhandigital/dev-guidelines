@@ -224,6 +224,8 @@ Violating this — an adapter importing from services, a UI file importing direc
 
 `main.ts` has one job: wire the layers together and start the script. It is the only file allowed to reach across all layers. It must make the dependency graph visible — if the ordering of initialisation matters, that ordering must be explicit here, not implicit in import order.
 
+**Explicit constraint:** `main.ts` is the only place that may contain a persistent loop (`setInterval`), a `MutationObserver`, or event listeners that drive the script's main lifecycle. If you find yourself writing one of those in any other file or folder — especially inside `ui/` — that code belongs here instead. A `ui/` file should never call its own polling function or "initialize itself"; it should only export pure functions that `main.ts` calls from the orchestration loop.
+
 ```ts
 // main.ts — you can read the whole architecture from this file
 import { initStorage } from './adapters/storage';
@@ -290,6 +292,8 @@ If you find yourself debating which folder a file belongs in, re-read the trigge
 
 There are no native UI surfaces in a userscript. Everything you render is injected into the host page. Manual DOM is the right default, but you must protect your elements from colliding with the host page.
 
+⚠️ **UI files are passive.** They export functions that create, update, or remove DOM. They must never own timers (`setInterval`, `setTimeout`), `MutationObserver` instances, or any kind of "start/initialize" control flow. All polling loops, path-based gating, and concurrency locks are **orchestration concerns that belong only in `main.ts`**.
+
 ### The Module-Scoped Dynamic ID
 For elements you inject and need to track (e.g., to ensure you don't inject them twice), **generate a stable, random ID at module scope**. 
 
@@ -345,7 +349,9 @@ Modern web apps are Single Page Applications (SPAs) built with React, Vue, or Tu
 Tutorials often preach using `MutationObserver` to watch the DOM. **Avoid this for SPAs.** If you attach an observer to a specific container, it gets destroyed when the framework replaces that container. If you attach it to `document.body` with `{ subtree: true }`, your script will trigger thousands of times per second during a page transition, tanking performance and requiring complex debouncing logic.
 
 ### The `setInterval` Solution
-The most robust, resilient, and performant approach for injecting UI into an SPA is **Continuous Polling via `setInterval`** (e.g., every 300ms), combined with strict execution guards. Polling survives framework re-renders, catches SPA navigations natively, and requires zero cleanup. 
+The most robust, resilient, and performant approach for injecting UI into an SPA is **Continuous Polling via `setInterval`** (e.g., every 300ms), combined with strict execution guards. Polling survives framework re-renders, catches SPA navigations natively, and requires zero cleanup.
+
+**The loop must live in `main.ts`, not in a `ui/` or `services/` file.** A common mistake is to export a function like `initInjector()` from `ui/injector.ts` that internally calls `setInterval`. This hides the script's orchestration and makes the dependency graph invisible. Instead, `main.ts` should contain the loop, and `ui/injector.ts` should export a simple, stateless function that `main.ts` calls repeatedly. 
 
 To prevent your interval from becoming a "CPU/Network Hammer," you **must** structure your main loop with four strict guards:
 
@@ -444,6 +450,35 @@ The instinct to use the more sophisticated API is usually overengineering. Match
 ---
  
 **The one-line version:** write the simplest code that handles what actually happens, not the most defensive code that handles what could theoretically happen.
+
+---
+
+## Self-Check: Architecture Audit
+
+Before publishing, verify that your script respects the module structure. These checks catch the most common violations:
+
+**Orchestration Layer:**
+- `main.ts` contains the `setInterval` loop (or other persistent lifecycle machinery). ✓
+- Any `setInterval`, `setTimeout`, or `MutationObserver` registration only lives in `main.ts`. ✓
+- No file in `ui/`, `actions/`, `services/`, or `adapters/` exports an `init*()` function that starts its own loop. ✓
+
+**UI Layer (`ui/`):**
+- All exported functions are stateless and take data as parameters. ✓
+- No file in `ui/` calls `setInterval` or `setTimeout`. ✓
+- No file in `ui/` owns a `MutationObserver`. ✓
+- UI files do not perform path checks or gating logic — `main.ts` does that before calling them. ✓
+
+**Dependency Flow:**
+- No file imports from a "higher" layer. (E.g., no `adapters/` importing from `services/`, no `ui/` importing directly from `adapters/`.) ✓
+- `main.ts` is the only file that imports from multiple layers simultaneously. ✓
+
+**Common Red Flags:**
+- ❌ `ui/injector.ts` exports `initInjector()` that calls `setInterval` internally.
+- ❌ `services/data.ts` owns a polling loop because it "needs to refresh data periodically."
+- ❌ `ui/button.ts` imports directly from an `adapters/api.ts` file to fetch data on click (should go through `actions/`).
+- ❌ `main.ts` is over 50 lines and contains implementation logic beyond wiring and initialization.
+
+If any of these red flags apply, refactor the file back to its correct layer. The structure will be cleaner and easier to debug.
 
 ## Skills
 
