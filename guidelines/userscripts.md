@@ -295,6 +295,34 @@ Keep them minimal. You're injecting into someone else's page — every extra KB 
 
 ---
 
+## Keep It Simple
+ 
+Before adding any non-feature code, ask one question: **does this solve a real problem that actually occurs, or am I just imagining it?**
+ 
+If you can't point to a concrete failure or waste, don't add the code.
+ 
+---
+ 
+**Scope guards** — bail out early when there's nothing to do. A page check at the top of `main.ts` is always worth it. A debounce on a MutationObserver is worth it (it fires dozens of times per SPA transition). Both prevent real, unnecessary work.
+ 
+**Correctness guards** — only for failures that genuinely happen. Re-entrant MutationObserver callbacks are real (your own DOM writes trigger it). Race conditions between two async calls are real. Theoretical concurrent mutation by a random other script is not real — skip it.
+ 
+**Performance optimisations** — skip them unless you can name the specific page, the specific bottleneck, and why the simple version is actually too slow. `querySelectorAll` on 5 nodes is not a bottleneck.
+ 
+**Teardown** — only for resources the browser holds independently: `observer.disconnect()`, `clearInterval`, `socket.close()`. Nulling out JS variables on `pagehide` is pointless — the browser destroys the whole context anyway.
+ 
+---
+ 
+**On tooling choices:** prefer the simpler API when it's sufficient.
+ 
+`setInterval` polling every 300ms is often better than a MutationObserver — it's two lines, trivially debuggable, and perfectly reliable for "wait until element appears" cases. Reach for MutationObserver only when you need to intercept changes before the user sees them, or when you're reacting to high-frequency mutations where polling would visibly lag.
+ 
+The instinct to use the more sophisticated API is usually overengineering. Match the tool to the actual precision required.
+ 
+---
+ 
+**The one-line version:** write the simplest code that handles what actually happens, not the most defensive code that handles what could theoretically happen.
+
 ## Skills
 
 Don't forget to check out Skills that you have. For userscripts, it's usually TypeScript and Userscripts guidelines.
