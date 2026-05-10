@@ -194,7 +194,15 @@ No God Files. Even though a userscript is a single bundle, the source should be 
 
 A userscript has five legitimate concerns. Each gets a folder when it has two or more files. Each folder has a strict contract — a file belongs in exactly one of them.
 
-**`ui/`** — DOM creation and state rendering only. Files here create elements, mutate their appearance, and listen for user input. They know nothing about what happens when the user acts — they only know how to render a given state and surface a callback. This includes injection logic that places elements into the host page's DOM — even if it's navigating YouTube's existing structure, it's still a UI concern.
+**`ui/`** — DOM creation and state rendering only. Files here create elements, mutate their appearance, and listen for user input. They know nothing about what happens when the user acts — they only know how to render a given state 
+and surface a callback.
+
+✓ Permitted: conditional styling, data‑to‑text binding, wiring a click
+  handler to an imported action.
+✗ Forbidden: business rules, data processing for the action, timers,
+  lifecycle decisions (when to appear, how often to check).
+
+This includes injection logic that places elements into the host page's DOM — even if it's navigating YouTube's existing structure, it's still a UI concern.
 
 **`actions/`** — sequenced user-facing operations. One file per thing *a user can explicitly trigger* — a click, a keyboard shortcut, a context menu item. Each file sequences calls *across concerns*: fetch transcript, then write to clipboard, then persist state. The sequence is the user's intent expressed in code — each step is a different system, connected because that's what the goal requires. No DOM, no GM_* calls, no rendering. If you removed the UI entirely, these files would still make sense.
 
