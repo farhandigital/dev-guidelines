@@ -30,6 +30,127 @@ Pick `empty` and `ts` as the template. The entry point is a single `main.ts` tha
 └── vite.config.ts
 ```
 
+## Full Template Source Code
+
+```txt
+monkey-template-empty
+├── dist
+│   └── vite-empty-ts-starter.user.js
+├── package.json
+├── src
+│   ├── main.ts
+│   └── vite-env.d.ts
+├── tsconfig.json
+└── vite.config.ts
+
+```
+
+`dist/vite-empty-ts-starter.user.js`:
+
+```js
+// ==UserScript==
+// @name       vite-empty-ts-starter
+// @namespace  npm/vite-plugin-monkey
+// @version    0.0.0
+// @icon       https://vitejs.dev/logo.svg
+// @match      https://www.google.com/
+// ==/UserScript==
+
+(function () {
+	'use strict';
+
+	console.log("hello world");
+
+})();
+```
+
+`package.json`:
+
+```json
+{
+  "name": "monkey-template-empty",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.0.11",
+    "vite-plugin-monkey": "^8.0.0"
+  }
+}
+```
+
+`src/main.ts`:
+
+```ts
+// @ts-ignore isolatedModules
+console.log('hello world');
+
+```
+
+`src/vite-env.d.ts`:
+
+```ts
+/// <reference types="vite/client" />
+/// <reference types="vite-plugin-monkey/client" />
+//// <reference types="vite-plugin-monkey/global" />
+/// <reference types="vite-plugin-monkey/style" />
+
+```
+
+`tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ESNext", "DOM"],
+    "moduleResolution": "Node",
+    "strict": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+
+```
+
+`vite.config.ts`:
+
+```ts
+import { defineConfig } from 'vite';
+import monkey from 'vite-plugin-monkey';
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [
+    monkey({
+      entry: 'src/main.ts',
+      userscript: {
+        icon: 'https://vitejs.dev/logo.svg',
+        namespace: 'npm/vite-plugin-monkey',
+        match: ['https://www.google.com/'],
+      },
+    }),
+  ],
+});
+
+```
+
 ---
 
 ## Userscript vs Extension — Know the Format
