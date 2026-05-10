@@ -237,14 +237,14 @@ Violating this — an adapter importing from services, a UI file importing direc
 ```ts
 // main.ts — you can read the whole architecture from this file
 import { initStorage } from './adapters/storage';
-import { injectCreationDate } from './ui/injector';
+import { renderCreationDate } from './ui/render';
 import { getCreationDate } from './services/githubRepo';
 
 async function main(): Promise<void> {
   await initStorage();                               // adapters boot first
   setInterval(() => {                                // system loop, not user action
     const date = await getCreationDate(user, repo);  // service call
-    injectCreationDate(date);                        // ui call
+    renderCreationDate(date);                        // ui call
   }, POLL_INTERVAL_MS);
 }
 
@@ -261,7 +261,7 @@ src/
 ├── ui/
 │   ├── button.ts
 │   ├── button.css
-│   └── injector.ts      ← places UI into the host page's DOM
+│   └── render.ts        ← passive: only creates and mutates DOM
 ├── actions/
 │   └── copyTranscript.ts
 ├── services/
@@ -306,17 +306,17 @@ There are no native UI surfaces in a userscript. Everything you render is inject
 For elements you inject and need to track (e.g., to ensure you don't inject them twice), **generate a stable, random ID at module scope**. 
 
 ```ts
-// ui/injector.ts
+// ui/render.ts
 // Generated once when the module loads, stable for the entire session.
 const NS = `uc_${Math.random().toString(36).slice(2, 10)}`;
 
-export function isAlreadyInjected() {
+export function isAlreadyRendered() {
     // ⚠️ Crucial: Use getElementById, not querySelector. 
     // getElementById is an O(1) hash map lookup and skips the browser's CSS parser.
     return document.getElementById(NS) !== null; 
 }
 
-export function injectElement() {
+export function renderElement() {
     const btn = document.createElement('button');
     btn.id = NS; // Bind the generated ID
     btn.className = 'myscript-btn';
@@ -359,7 +359,7 @@ Tutorials often preach using `MutationObserver` to watch the DOM. **Avoid this f
 ### The `setInterval` Solution
 The most robust, resilient, and performant approach for injecting UI into an SPA is **Continuous Polling via `setInterval`** (e.g., every 300ms), combined with strict execution guards. Polling survives framework re-renders, catches SPA navigations natively, and requires zero cleanup.
 
-**The loop must live in `main.ts`, not in a `ui/` or `services/` file.** A common mistake is to export a function like `initInjector()` from `ui/injector.ts` that internally calls `setInterval`. This hides the script's orchestration and makes the dependency graph invisible. Instead, `main.ts` should contain the loop, and `ui/injector.ts` should export a simple, stateless function that `main.ts` calls repeatedly. 
+**The loop must live in `main.ts`, not in a `ui/` or `services/` file.** A common mistake is to export a function like `initRender()` from `ui/render.ts` that internally calls `setInterval`. This hides the script's orchestration and makes the dependency graph invisible. Instead, `main.ts` should contain the loop, and `ui/render.ts` should export a simple, stateless function that `main.ts` calls repeatedly.
 
 To prevent your interval from becoming a "CPU/Network Hammer," you **must** structure your main loop with four strict guards:
 
@@ -481,7 +481,7 @@ Before publishing, verify that your script respects the module structure. These 
 - `main.ts` is the only file that imports from multiple layers simultaneously. ✓
 
 **Common Red Flags:**
-- ❌ `ui/injector.ts` exports `initInjector()` that calls `setInterval` internally.
+- ❌ `ui/render.ts` exports `initRender()` that calls `setInterval` internally.
 - ❌ `services/data.ts` owns a polling loop because it "needs to refresh data periodically."
 - ❌ `ui/button.ts` imports directly from an `adapters/api.ts` file to fetch data on click (should go through `actions/`).
 - ❌ `main.ts` is over 50 lines and contains implementation logic beyond wiring and initialization.
