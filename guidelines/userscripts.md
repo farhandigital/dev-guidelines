@@ -14,24 +14,19 @@ Bootstrap with:
 bun create monkey
 ```
 
-Pick `vanilla-ts` as the default. The entry point is a single `main.ts` that runs in the page context. Unlike a browser extension, there is no popup, sidebar, background script, or manifest — just one script injected into matching pages.
+Pick `empty` and `ts` as the template. The entry point is a single `main.ts` that runs in the page context. Unlike a browser extension, there is no popup, sidebar, background script, or manifest — just one script injected into matching pages.
 
-### Default Template Structure (vanilla-ts)
+### Default Template Structure (empty - ts)
 
 ```
 .
 ├── dist
-│   └── vite-vanilla-ts-starter.user.js
+│   └── vite-empty-ts-starter.user.js
 ├── package.json
 ├── src
-│   ├── counter.ts
 │   ├── main.ts
-│   ├── style.css
-│   ├── typescript.svg
 │   ├── vite-env.d.ts
-│   └── vite.svg
 ├── tsconfig.json
-├── tsconfig.node.json
 └── vite.config.ts
 ```
 
