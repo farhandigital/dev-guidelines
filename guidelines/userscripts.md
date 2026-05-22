@@ -300,7 +300,7 @@ If you find yourself debating which folder a file belongs in, re-read the trigge
 
 There are no native UI surfaces in a userscript. Everything you render is injected into the host page. Manual DOM is the right default, but you must protect your elements from colliding with the host page.
 
-⚠️ **UI files are passive.** They export functions that create, update, or remove DOM. They must never own timers (`setInterval`, `setTimeout`), `MutationObserver` instances, or any kind of "start/initialize" control flow. All polling loops, path-based gating, and concurrency locks are **orchestration concerns that belong only in `main.ts`**.
+⚠️ **UI files are passive.** They export functions that create, update, or remove DOM. They must never own persistent timers (`setInterval`) or `MutationObserver` instances, or any kind of "start/initialize" control flow. All **persistent** polling loops, path-based gating, and concurrency locks are **orchestration concerns that belong only in `main.ts`**. Short-lived waits (e.g., `waitForElement`) should live in `actions/`, `adapters/`, or utilities — not in `ui/`.
 
 ### The Module-Scoped Dynamic ID
 For elements you inject and need to track (e.g., to ensure you don't inject them twice), **generate a stable, random ID at module scope**. 
@@ -358,6 +358,35 @@ Tutorials often preach using `MutationObserver` to watch the DOM. **Avoid this f
 
 ### The `setInterval` Solution
 The most robust, resilient, and performant approach for injecting UI into an SPA is **Continuous Polling via `setInterval`** (e.g., every 300ms), combined with strict execution guards. Polling survives framework re-renders, catches SPA navigations natively, and requires zero cleanup.
+
+### Waiting for Elements: Poll, Don’t Sleep
+Avoid arbitrary `sleep(...)` / `setTimeout` delays to "wait for the UI." They are guesses and will break on slow or fast pages. Instead, poll for the **specific element or state you need**, with a **bounded timeout** (default 5s). This is a **short-lived wait** — not a persistent loop — and is safe outside `main.ts`.
+
+```ts
+// utils/dom.ts or utils.ts
+export function waitForElement<T extends Element>(
+  selector: string,
+  { timeoutMs = 5000, predicate }: { timeoutMs?: number; predicate?: (el: T) => boolean } = {},
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+
+  return new Promise((resolve, reject) => {
+    const check = (): void => {
+      const el = document.querySelector<T>(selector);
+      if (el && (!predicate || predicate(el))) return resolve(el);
+      if (Date.now() >= deadline) {
+        return reject(new Error(`waitForElement timed out: "${selector}"`));
+      }
+      setTimeout(check, 100);
+    };
+    check();
+  });
+}
+```
+
+Use it instead of sleeps:
+- `await waitForElement('.share-dialog')`
+- `await waitForElement('textarea[name=pgn]', { predicate: el => el.value.trim().length > 0 })`
 
 **The loop must live in `main.ts`, not in a `ui/` or `services/` file.** A common mistake is to export a function like `initRender()` from `ui/render.ts` that internally calls `setInterval`. This hides the script's orchestration and makes the dependency graph invisible. Instead, `main.ts` should contain the loop, and `ui/render.ts` should export a simple, stateless function that `main.ts` calls repeatedly.
 
@@ -451,7 +480,8 @@ If you can't point to a concrete failure or waste, don't add the code.
  
 **On tooling choices:** prefer the simpler API when it's sufficient.
  
-`setInterval` polling every 300ms is often better than a MutationObserver — it's two lines, trivially debuggable, and perfectly reliable for "wait until element appears" cases. Reach for MutationObserver only when you need to intercept changes before the user sees them, or when you're reacting to high-frequency mutations where polling would visibly lag.
+For continuous SPA injection, `setInterval` polling every 300ms is often better than a MutationObserver — it's two lines, trivially debuggable, and perfectly reliable.
+For one-off waits (e.g., after a click), use a bounded polling helper like `waitForElement` — never arbitrary `sleep()` delays. Reach for MutationObserver only when you need to intercept changes before the user sees them, or when you're reacting to high-frequency mutations where polling would visibly lag.
  
 The instinct to use the more sophisticated API is usually overengineering. Match the tool to the actual precision required.
  
@@ -467,12 +497,13 @@ Before publishing, verify that your script respects the module structure. These 
 
 **Orchestration Layer:**
 - `main.ts` contains the `setInterval` loop (or other persistent lifecycle machinery). ✓
-- Any `setInterval`, `setTimeout`, or `MutationObserver` registration only lives in `main.ts`. ✓
+- Any persistent `setInterval` or `MutationObserver` registration only lives in `main.ts`. ✓
+- Short-lived, bounded waits (e.g., `waitForElement` with a timeout) are allowed outside `main.ts`. ✓
 - No file in `ui/`, `actions/`, `services/`, or `adapters/` exports an `init*()` function that starts its own loop. ✓
 
 **UI Layer (`ui/`):**
 - All exported functions are stateless and take data as parameters. ✓
-- No file in `ui/` calls `setInterval` or `setTimeout`. ✓
+- No file in `ui/` calls `setInterval` or `setTimeout` (bounded waits belong outside `ui/`). ✓
 - No file in `ui/` owns a `MutationObserver`. ✓
 - UI files do not perform path checks or gating logic — `main.ts` does that before calling them. ✓
 
